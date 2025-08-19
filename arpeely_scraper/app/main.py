@@ -1,13 +1,13 @@
-from fastapi import HTTPException, Depends, Query
 from dependency_injector.wiring import Provide, inject
-import os
-from sqlalchemy import text
+from fastapi import HTTPException, Depends, Query
 
-from arpeely_scraper.app.models import ScrapeRequest, ScrapeResponse, StatusOnlyResponse, ResultsResponse, UrlStatusRecord
+from arpeely_scraper.app.models import ScrapeRequest, AsyncScrapeRequest, ScrapeResponse, StatusOnlyResponse, ResultsResponse, \
+    UrlStatusRecord
 from arpeely_scraper.app.service import ScraperApp
 from arpeely_scraper.core.scraper import WebScraper
 from arpeely_scraper.db_connector.di_container import Container
 from arpeely_scraper.db_connector.scraped_url_db_connector import ScrapedUrlDBConnector
+
 
 app = ScraperApp()
 
@@ -17,6 +17,16 @@ def scrape(request: ScrapeRequest):
     scraper = WebScraper()
     try:
         results = scraper.scrape(request.base_url, request.max_depth)
+        return ScrapeResponse(status="completed", scraped_count=len(results))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ascrape", response_model=ScrapeResponse)
+async def ascrape(request: AsyncScrapeRequest):
+    scraper = WebScraper()
+    try:
+        results = await scraper.ascrape(request.base_url, request.max_depth, request.max_concurrency)
         return ScrapeResponse(status="completed", scraped_count=len(results))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

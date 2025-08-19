@@ -8,6 +8,13 @@ class ScrapeRequest(BaseModel):
     start_fresh: bool = True
 
 
+class AsyncScrapeRequest(BaseModel):
+    base_url: str
+    max_depth: int = 2
+    max_concurrency: int = 10
+    start_fresh: bool = True
+
+
 class ScrapeResponse(BaseModel):
     status: str
     scraped_count: int
