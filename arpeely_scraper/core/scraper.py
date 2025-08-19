@@ -7,23 +7,35 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 import requests
 from bs4 import BeautifulSoup
+from dependency_injector.wiring import inject, Provide
 
 from arpeely_scraper.core.url_metadata import URLMetadata
+from arpeely_scraper.db_connector.di_container import Container
 
 
 class WebScraper:
-    def __init__(self, delay: float = 1.0, timeout: int = 10):
+
+    @inject
+    def __init__(
+            self,
+            db_connector=Provide[Container.db_connector],
+            delay: float = 1.0, timeout: int = 10,
+            start_fresh: bool = False
+    ):
         """
         Initialize the web scraper.
 
         Args:
+            db_connector: Instance of ScrapedUrlDBConnector (injected)
             delay: Delay between requests in seconds
             timeout: Request timeout in seconds
         """
+        self.db_connector = db_connector
         self.delay = delay
         self.timeout = timeout
         self.visited_urls: Set[str] = set()
         self.scraped_data: Dict[str, URLMetadata] = {}
+        self.start_fresh = start_fresh
 
         self.session_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -49,21 +61,41 @@ class WebScraper:
             raise ValueError(f"Invalid initial URL: {initial_url}")
 
         self.logger.info(f"Starting scrape from {initial_url} with max depth {max_depth}")
-
         session = requests.Session()
         session.headers.update(self.session_headers)
 
-        urls_to_process: List[Tuple[str, Optional[str], int]] = [(initial_url, None, 0)]  # (url, source_url, depth)
+        # Recovery logic
+        urls_to_process: List[Tuple[str, Optional[str], int]]
+        if not self.start_fresh:
+            queued_records = self.db_connector.get_queued_urls(initial_url)
+            if queued_records:
+                self.logger.info(f"Resuming from {len(queued_records)} queued URLs for base_url {initial_url}")
+                urls_to_process = [(url, source_url, depth) for url, source_url, depth in queued_records]
+            else:
+                self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
+                urls_to_process = [(initial_url, None, 0)]
+        else:
+            urls_to_process = [(initial_url, None, 0)]
+
         while urls_to_process:
             current_url, source_url, current_depth = urls_to_process.pop(0)
 
             if current_url in self.visited_urls or current_depth > max_depth:
                 continue
 
+            # Insert as queued before scraping
+            self.db_connector.upsert_scraped_url(
+                base_url=initial_url,
+                url=current_url,
+                source_url=source_url,
+                depth=current_depth,
+                title=None,
+                links_to_texts={},
+                status="queued"
+            )
+
             self.logger.info(f"Scraping: {current_url} (depth: {current_depth})")
-
             self.visited_urls.add(current_url)
-
             soup = self._get_page_content(current_url, session=session)
 
             if soup is not None:
@@ -76,13 +108,24 @@ class WebScraper:
                 )
                 self.scraped_data[page_data.url] = page_data
 
+                # Update status to completed after scraping
+                self.db_connector.update_status(
+                    base_url=initial_url,
+                    url=current_url,
+                    status="completed"
+                )
+
                 if current_depth < max_depth:
                     for link_url in page_data.links_to_texts.keys():
                         if link_url not in self.visited_urls:
                             urls_to_process.append((link_url, current_url, current_depth + 1))
             else:
-                # write to db
-                pass
+                # Update status to completed even if scraping failed
+                self.db_connector.update_status(
+                    base_url=initial_url,
+                    url=current_url,
+                    status="completed"
+                )
 
             if self.delay > 0:
                 time.sleep(self.delay)
@@ -164,6 +207,11 @@ class WebScraper:
         self.logger.info(f"Concurrent scraping completed. Visited {len(self.visited_urls)} URLs")
         return self.scraped_data
 
+    def _get_last_state_by_run_id(self) -> Dict[str, URLMetadata]:
+        # search for the run id in the failed requests table
+        # if found, return the remaining URLs to scrape
+        pass
+
     async def _scrape_url_concurrent(
             self,
             session: aiohttp.ClientSession,
@@ -185,8 +233,18 @@ class WebScraper:
                     return []
                 self.visited_urls.add(url)
 
-            self.logger.info(f"Scraping: {url} (depth: {depth})")
+            # Insert as queued before scraping
+            self.db_connector.upsert_scraped_url(
+                base_url=self.visited_urls.__iter__().__next__(),  # Use the first visited as base_url
+                url=url,
+                source_url=source_url,
+                depth=depth,
+                title=None,
+                links_to_texts={},
+                status="queued"
+            )
 
+            self.logger.info(f"Scraping: {url} (depth: {depth})")
             try:
                 # Add delay to be respectful to servers
                 if self.delay > 0:
@@ -207,13 +265,31 @@ class WebScraper:
                     async with scraped_lock:
                         self.scraped_data[page_data.url] = page_data
 
+                    # Update status to completed after scraping
+                    self.db_connector.update_status(
+                        base_url=self.visited_urls.__iter__().__next__(),
+                        url=url,
+                        status="completed"
+                    )
+
                     # Return new URLs for next level
                     return [(link_url, url, depth + 1) for link_url in page_data.links_to_texts.keys()]
                 else:
+                    # Update status to completed even if scraping failed
+                    self.db_connector.update_status(
+                        base_url=self.visited_urls.__iter__().__next__(),
+                        url=url,
+                        status="completed"
+                    )
                     return []
 
             except Exception as e:
                 self.logger.error(f"Error scraping {url}: {e}")
+                self.db_connector.update_status(
+                    base_url=self.visited_urls.__iter__().__next__(),
+                    url=url,
+                    status="completed"
+                )
                 return []
 
     async def _get_page_content_async(self, session: aiohttp.ClientSession, url: str) -> Optional[BeautifulSoup]:
