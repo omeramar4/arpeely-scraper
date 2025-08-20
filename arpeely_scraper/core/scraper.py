@@ -13,6 +13,9 @@ from arpeely_scraper.core.url_metadata import URLMetadata
 from arpeely_scraper.db_connector.di_container import Container
 
 
+UrlToProcessType = Tuple[str, Optional[str], int]  # (url, source_url, depth)
+
+
 class WebScraper:
 
     @inject
@@ -55,27 +58,13 @@ class WebScraper:
         Returns:
             Dictionary containing all scraped data
         """
-        if max_depth < 0:
-            raise ValueError("Max depth must be >= 0")
-        if not self._is_valid_url(initial_url):
-            raise ValueError(f"Invalid initial URL: {initial_url}")
 
+        self._validate_input(initial_url, max_depth)
         self.logger.info(f"Starting scrape from {initial_url} with max depth {max_depth}")
         session = requests.Session()
         session.headers.update(self.session_headers)
 
-        # Recovery logic
-        urls_to_process: List[Tuple[str, Optional[str], int]]
-        if not self.start_fresh:
-            queued_records = self.db_connector.get_queued_urls(initial_url)
-            if queued_records:
-                self.logger.info(f"Resuming from {len(queued_records)} queued URLs for base_url {initial_url}")
-                urls_to_process = [(url, source_url, depth) for url, source_url, depth in queued_records]
-            else:
-                self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
-                urls_to_process = [(initial_url, None, 0)]
-        else:
-            urls_to_process = [(initial_url, None, 0)]
+        urls_to_process = self._recover_previous_state(initial_url)
 
         while urls_to_process:
             current_url, source_url, current_depth = urls_to_process.pop(0)
@@ -144,11 +133,7 @@ class WebScraper:
         Returns:
             Dictionary containing all scraped data
         """
-        if max_depth < 0:
-            raise ValueError("Max depth must be >= 0")
-        if not self._is_valid_url(initial_url):
-            raise ValueError(f"Invalid initial URL: {initial_url}")
-
+        self._validate_input(initial_url, max_depth)
         self.logger.info(f"Starting concurrent scrape from {initial_url} with max depth {max_depth}")
 
         # Create semaphore to limit concurrent requests
@@ -165,9 +150,7 @@ class WebScraper:
             timeout=timeout,
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         ) as session:
-
-            # Start with initial URL
-            urls_to_process: List[Tuple[str, Optional[str], int]] = [(initial_url, None, 0)]
+            urls_to_process = self._recover_previous_state(initial_url)
 
             # Process URLs level by level to maintain depth control
             for current_depth in range(max_depth + 1):
@@ -207,10 +190,32 @@ class WebScraper:
         self.logger.info(f"Concurrent scraping completed. Visited {len(self.visited_urls)} URLs")
         return self.scraped_data
 
-    def _get_last_state_by_run_id(self) -> Dict[str, URLMetadata]:
-        # search for the run id in the failed requests table
-        # if found, return the remaining URLs to scrape
-        pass
+    def _validate_input(self, initial_url: str, max_depth: int):
+        if max_depth < 0:
+            raise ValueError("Max depth must be >= 0")
+        if not self._is_valid_url(initial_url):
+            raise ValueError(f"Invalid initial URL: {initial_url}")
+
+    def _recover_previous_state(self, initial_url: str) -> List[UrlToProcessType]:
+        """
+        Recover previous scraping state from the database.
+
+        :param initial_url:
+        :return:
+        """
+        urls_to_process: List[Tuple[str, Optional[str], int]]
+        if not self.start_fresh:
+            queued_records = self.db_connector.get_queued_urls(initial_url)
+            if queued_records:
+                self.logger.info(f"Resuming from {len(queued_records)} queued URLs for base_url {initial_url}")
+                urls_to_process = [(url, source_url, depth) for url, source_url, depth in queued_records]
+            else:
+                self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
+                urls_to_process = [(initial_url, None, 0)]
+        else:
+            urls_to_process = [(initial_url, None, 0)]
+
+        return urls_to_process
 
     async def _scrape_url_concurrent(
             self,
