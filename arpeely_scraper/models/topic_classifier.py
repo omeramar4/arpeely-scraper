@@ -18,9 +18,6 @@ class TopicClassifier:
         "shopping", "productivity", "coding", "other"
     ]
 
-    # Recommended model for torch 2.2.2 compatibility (uses safetensors)
-    RECOMMENDED_MODEL = "typeform/distilbert-base-uncased-mnli"
-
     def __init__(self, model_name: str):
         """
         Initialize the topic classifier with a specified Hugging Face model.
@@ -33,16 +30,6 @@ class TopicClassifier:
         self.classifier = None
         self._lock = threading.Lock()
         self._initialize_model()
-
-    @classmethod
-    def create_default(cls) -> 'TopicClassifier':
-        """
-        Create a TopicClassifier with the recommended model for torch 2.2.2.
-
-        Returns:
-            TopicClassifier instance with facebook/bart-large-mnli model
-        """
-        return cls(cls.RECOMMENDED_MODEL)
 
     def _initialize_model(self):
         """Initialize the classification model."""
