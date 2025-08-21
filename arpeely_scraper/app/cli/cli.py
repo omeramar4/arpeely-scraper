@@ -220,5 +220,28 @@ def serve(host: str, port: int, reload: bool):
         raise click.ClickException(str(e))
 
 
+@main.command()
+@click.argument('topics', nargs=-1)
+def add_topics(topics):
+    """Add topics to the topic classifier (comma-separated or space-separated)."""
+    if not topics:
+        click.echo("❌ No topics provided. Please specify topics as arguments.", err=True)
+        return
+
+    # Support comma-separated input as a single argument
+    if len(topics) == 1 and ',' in topics[0]:
+        topics_list = [t.strip() for t in topics[0].split(',') if t.strip()]
+    else:
+        topics_list = [t for t in topics if t.strip()]
+
+    if not topics_list:
+        click.echo("❌ No valid topics found after parsing.", err=True)
+        return
+
+    topic_classifier = app.container.topic_classifier()
+    topic_classifier.set_topics(topics_list)
+    click.echo(f"✅ Topics updated: {topic_classifier.TOPICS}")
+
+
 if __name__ == '__main__':
     main()

@@ -2,7 +2,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import HTTPException, Depends, Query
 
 from arpeely_scraper.app.api.models import ScrapeRequest, AsyncScrapeRequest, ScrapeResponse, StatusOnlyResponse, ResultsResponse, \
-    UrlStatusRecord
+    UrlStatusRecord, AddTopicsRequest
 from arpeely_scraper.app.service import ScraperApp
 from arpeely_scraper.core.scraper import WebScraper
 from arpeely_scraper.core.di_container import Container
@@ -59,6 +59,13 @@ def results(
         topic=topic
     ) for url, source_url, depth, status, topic in all_urls]
     return ResultsResponse(base_url=base_url, results=result_objs)
+
+
+@app.post("/add_topics")
+def add_topics(request: AddTopicsRequest):
+    topic_classifier = app.container.topic_classifier()
+    topic_classifier.set_topics(request.topics)
+    return {"status": "success", "topics": topic_classifier.TOPICS}
 
 
 if __name__ == '__main__':

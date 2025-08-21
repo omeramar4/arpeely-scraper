@@ -47,3 +47,7 @@ class ResultRecord(BaseModel):
     links_to_texts: Any
     topic: str = "other"
     status: str
+
+
+class AddTopicsRequest(BaseModel):
+    topics: List[str]

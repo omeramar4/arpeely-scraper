@@ -19,7 +19,6 @@ services:
 
   fastapi:
     build: .
-    image: arpeely-scraper:latest
     depends_on:
       - postgres
     environment:
@@ -29,12 +28,9 @@ services:
     command: ["uvicorn", "arpeely_scraper.app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   cli:
-    image: arpeely-scraper:latest
+    build: .
     depends_on:
       - postgres
     environment:
       <<: *common-env
     entrypoint: ["/usr/local/bin/cli_entrypoint.sh"]
-    volumes:
-      - .:/app
-    working_dir: /app

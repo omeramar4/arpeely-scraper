@@ -162,3 +162,13 @@ class TopicClassifier:
             self.logger.error(f"Error getting topic confidence for text: {e}")
             return {}
 
+    def set_topics(self, topics: List[str]):
+        """
+        Update the list of topics for classification.
+
+        Args:
+            topics: List of new topics to use for classification
+        """
+        with self._lock:
+            self.TOPICS = topics
+        self.logger.info(f"Updated topics list: {self.TOPICS}")
