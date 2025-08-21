@@ -1,5 +1,3 @@
-CREATE TYPE url_status_enum AS ENUM ('processing', 'queued', 'completed');
-
 CREATE TABLE IF NOT EXISTS scraped_urls (
     base_url VARCHAR NOT NULL,
     url VARCHAR NOT NULL,

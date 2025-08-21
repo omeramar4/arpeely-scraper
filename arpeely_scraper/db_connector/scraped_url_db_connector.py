@@ -1,5 +1,7 @@
 from typing import Optional, Dict
 
+from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import text
 from sqlalchemy import create_engine, Column, String, Integer, Enum, JSON, inspect
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,6 +38,7 @@ class ScrapedUrlDBConnector:
         # Create tables if not exist
         if not inspect(self.engine).has_table("scraped_urls"):
             Base.metadata.create_all(self.engine)
+        self._create_url_status_enum_type()
 
     def upsert_scraped_url(self,
                            base_url: str,
@@ -124,6 +127,13 @@ class ScrapedUrlDBConnector:
             return [(r.url, r.source_url, r.depth, r.status.value if hasattr(r.status, 'value') else str(r.status), r.topic) for r in records]
         finally:
             session.close()
+
+    def _create_url_status_enum_type(self):
+        session = self.Session()
+        try:
+            session.execute(text("CREATE TYPE url_status_enum AS ENUM ('processing', 'queued', 'completed');"))
+        except ProgrammingError:
+            pass
 
     def close(self):
         self.engine.dispose()

@@ -19,6 +19,7 @@ services:
 
   fastapi:
     build: .
+    image: arpeely-scraper:latest
     depends_on:
       - postgres
     environment:
@@ -28,7 +29,7 @@ services:
     command: ["uvicorn", "arpeely_scraper.app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   cli:
-    build: .
+    image: arpeely-scraper:latest
     depends_on:
       - postgres
     environment:
