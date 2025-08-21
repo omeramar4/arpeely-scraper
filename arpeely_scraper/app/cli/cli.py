@@ -12,16 +12,7 @@ from arpeely_scraper.core.scraper import WebScraper
 from arpeely_scraper.db_connector.scraped_url_db_connector import ScrapedUrlDBConnector
 
 
-# Global app instance
-_app = None
-
-
-def get_app() -> ScraperApp:
-    """Get or create the ScraperApp instance."""
-    global _app
-    if _app is None:
-        _app = ScraperApp()
-    return _app
+app = ScraperApp()
 
 
 @click.group()
@@ -42,7 +33,7 @@ def scrape(base_url: str, max_depth: int, start_fresh: bool, output: Optional[st
     click.echo(f"Max depth: {max_depth}, Start fresh: {start_fresh}")
 
     try:
-        app = get_app()
+        # app = get_app()
         scraper = WebScraper(start_fresh=start_fresh)
         scraped_urls = scraper.scrape(base_url, max_depth)
 
@@ -86,7 +77,7 @@ def ascrape(base_url: str, max_depth: int, max_concurrency: int, start_fresh: bo
 
     async def _ascrape():
         try:
-            app = get_app()
+            # app = get_app()
             scraper = WebScraper(start_fresh=start_fresh)
             scraped_urls = await scraper.ascrape(base_url, max_depth, max_concurrency)
 
@@ -124,7 +115,7 @@ def ascrape(base_url: str, max_depth: int, max_concurrency: int, start_fresh: bo
 def status(base_url: str):
     """Check the scraping status for a base URL."""
     try:
-        app = get_app()
+        # app = get_app()
         db_connector: ScrapedUrlDBConnector = app.container.db_connector()
 
         all_urls = db_connector.get_all_urls_with_status(base_url)
@@ -153,7 +144,7 @@ def status(base_url: str):
 def results(base_url: str, output: Optional[str], output_format: str):
     """Get scraping results for a base URL."""
     try:
-        app = get_app()
+        # app = get_app()
         db_connector: ScrapedUrlDBConnector = app.container.db_connector()
 
         all_urls = db_connector.get_all_urls_with_status(base_url)
@@ -226,18 +217,6 @@ def serve(host: str, port: int, reload: bool):
         raise click.ClickException("uvicorn not found")
     except Exception as e:
         click.echo(f"❌ Error starting server: {e}", err=True)
-        raise click.ClickException(str(e))
-
-
-@main.command()
-def init_db():
-    """Initialize the database tables and types."""
-    try:
-        app = get_app()
-        app._init_db_table()
-        click.echo("✅ Database tables and types initialized successfully.")
-    except Exception as e:
-        click.echo(f"❌ Error initializing database: {e}", err=True)
         raise click.ClickException(str(e))
 
 
