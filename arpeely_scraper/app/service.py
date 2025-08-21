@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import os
+import logging
 from sqlalchemy import text
 
 from arpeely_scraper.core.di_container import Container
@@ -10,12 +11,14 @@ class ScraperApp(FastAPI):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.container = self.__init_services()
-        self.add_event_handler("startup", self._init_db_table)
-        self.add_event_handler("startup", self._init_topic_classifier)
+        self.logger = logging.getLogger(__name__)
+        self.container = self.init_services()
+        self.created_table = False
+        self._init_db_table()
+        self._init_topic_classifier()
 
     @staticmethod
-    def __init_services() -> Container:
+    def init_services() -> Container:
         container = Container()
 
         # Configure each config attribute individually
@@ -32,11 +35,15 @@ class ScraperApp(FastAPI):
     def _init_topic_classifier(self):
         """Initialize the topic classifier at startup to ensure the model is loaded once."""
         topic_classifier = self.container.topic_classifier()
-        print("Topic classifier initialized successfully.")
+        self.logger.info("Topic classifier initialized successfully.")
 
     def _init_db_table(self):
         db_connector: ScrapedUrlDBConnector = self.container.db_connector()
         engine = db_connector.engine
+        if self.created_table:
+            self.logger.info("scraped_urls table already initialized. Skipping.")
+            return
+
         with engine.connect() as conn:
             sql_path = os.path.join(os.path.dirname(__file__), 'scripts/create_scraped_url_table.sql')
             with open(sql_path, 'r') as f:
@@ -46,4 +53,6 @@ class ScraperApp(FastAPI):
                 if stmt:
                     conn.execute(text(stmt))
             conn.commit()
-            print("scraped_urls table creation SQL executed (idempotent).")
+            self.logger.info("scraped_urls table creation SQL executed (idempotent).")
+
+        self.created_table = True

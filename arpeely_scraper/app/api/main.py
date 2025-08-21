@@ -1,7 +1,7 @@
 from dependency_injector.wiring import Provide, inject
 from fastapi import HTTPException, Depends, Query
 
-from arpeely_scraper.app.models import ScrapeRequest, AsyncScrapeRequest, ScrapeResponse, StatusOnlyResponse, ResultsResponse, \
+from arpeely_scraper.app.api.models import ScrapeRequest, AsyncScrapeRequest, ScrapeResponse, StatusOnlyResponse, ResultsResponse, \
     UrlStatusRecord
 from arpeely_scraper.app.service import ScraperApp
 from arpeely_scraper.core.scraper import WebScraper

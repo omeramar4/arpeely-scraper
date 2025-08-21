@@ -3,7 +3,10 @@ FROM python:3.10-slim
 WORKDIR /app
 COPY ../.. /app
 
-RUN pip install --upgrade pip && pip install poetry && poetry install
-EXPOSE 8000
-CMD ["poetry", "run", "uvicorn", "arpeely_scraper.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY arpeely_scraper/app/cli/cli_entrypoint.sh /usr/local/bin/cli_entrypoint.sh
+RUN chmod +x /usr/local/bin/cli_entrypoint.sh
 
+RUN pip install --upgrade pip
+RUN pip install poetry
+RUN poetry config virtualenvs.create false
+RUN poetry install

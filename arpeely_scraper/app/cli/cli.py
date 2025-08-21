@@ -21,9 +21,6 @@ def get_app() -> ScraperApp:
     global _app
     if _app is None:
         _app = ScraperApp()
-        # Initialize the services synchronously for CLI usage
-        _app._init_db_table()
-        _app._init_topic_classifier()
     return _app
 
 
@@ -229,6 +226,18 @@ def serve(host: str, port: int, reload: bool):
         raise click.ClickException("uvicorn not found")
     except Exception as e:
         click.echo(f"❌ Error starting server: {e}", err=True)
+        raise click.ClickException(str(e))
+
+
+@main.command()
+def init_db():
+    """Initialize the database tables and types."""
+    try:
+        app = get_app()
+        app._init_db_table()
+        click.echo("✅ Database tables and types initialized successfully.")
+    except Exception as e:
+        click.echo(f"❌ Error initializing database: {e}", err=True)
         raise click.ClickException(str(e))
 
 

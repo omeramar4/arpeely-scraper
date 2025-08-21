@@ -25,7 +25,7 @@ services:
       <<: *common-env
     ports:
       - "8000:8000"
-    command: ["poetry", "run", "uvicorn", "arpeely_scraper.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "arpeely_scraper.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   cli:
     build: .
@@ -33,9 +33,7 @@ services:
       - postgres
     environment:
       <<: *common-env
-    stdin_open: true
-    tty: true
-    entrypoint: ["/bin/bash"]
+    entrypoint: ["/usr/local/bin/cli_entrypoint.sh"]
     volumes:
       - .:/app
     working_dir: /app

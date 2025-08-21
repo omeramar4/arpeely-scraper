@@ -20,12 +20,12 @@ dependencies = [
     "uvicorn>=0.35.0,<0.36.0",
     "fastapi>=0.116.1,<0.117.0",
     "transformers>=4.21.0,<5.0.0",
-    "torch==2.2.2",
+    "torch==2.7.1",
     "click>=8.0.0",
 ]
 
 [project.scripts]
-arpeely = "arpeely_scraper.app.cli:main"
+arpeely = "arpeely_scraper.app.cli.cli:main"
 
 
 [build-system]
