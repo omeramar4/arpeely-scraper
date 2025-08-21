@@ -1,12 +1,19 @@
 version: '3.8'
+
+x-common-variables: &common-env
+  POSTGRES_DB: arpeely_db
+  POSTGRES_USER: arpeely_user
+  POSTGRES_PASSWORD: arpeely_pass
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  TOPIC_MODEL_NAME: valhalla/distilbart-mnli-12-1
+
 services:
   postgres:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_DB: arpeely_db
-      POSTGRES_USER: arpeely_user
-      POSTGRES_PASSWORD: arpeely_pass
+      <<: *common-env
     ports:
       - "5432:5432"
 
@@ -15,12 +22,20 @@ services:
     depends_on:
       - postgres
     environment:
-      POSTGRES_DB: arpeely_db
-      POSTGRES_USER: arpeely_user
-      POSTGRES_PASSWORD: arpeely_pass
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      TOPIC_MODEL_NAME: valhalla/distilbart-mnli-12-1
+      <<: *common-env
     ports:
       - "8000:8000"
     command: ["poetry", "run", "uvicorn", "arpeely_scraper.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  cli:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      <<: *common-env
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/bash"]
+    volumes:
+      - .:/app
+    working_dir: /app
