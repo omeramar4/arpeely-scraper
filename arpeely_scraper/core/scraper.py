@@ -9,8 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from dependency_injector.wiring import inject, Provide
 
-from arpeely_scraper.core.url_metadata import URLMetadata
-from arpeely_scraper.db_connector.di_container import Container
+from arpeely_scraper.core.di_container import Container
 
 
 UrlToProcessType = Tuple[str, Optional[str], int]  # (url, source_url, depth)
@@ -22,6 +21,7 @@ class WebScraper:
     def __init__(
             self,
             db_connector=Provide[Container.db_connector],
+            topic_classifier=Provide[Container.topic_classifier],
             delay: float = 1.0, timeout: int = 10,
             start_fresh: bool = False
     ):
@@ -30,14 +30,16 @@ class WebScraper:
 
         Args:
             db_connector: Instance of ScrapedUrlDBConnector (injected)
+            topic_classifier: Instance of TopicClassifier (injected)
             delay: Delay between requests in seconds
             timeout: Request timeout in seconds
         """
         self.db_connector = db_connector
+        self.topic_classifier = topic_classifier
         self.delay = delay
         self.timeout = timeout
         self.visited_urls: Set[str] = set()
-        self.scraped_data: Dict[str, URLMetadata] = {}
+        self.scraped_data: Set[str] = set()
         self.start_fresh = start_fresh
 
         self.session_headers = {
@@ -47,7 +49,7 @@ class WebScraper:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
-    def scrape(self, initial_url: str, max_depth: int) -> Dict[str, URLMetadata]:
+    def scrape(self, initial_url: str, max_depth: int) -> Set[str]:
         """
         Main scraping function that recursively crawls pages (synchronous version).
 
@@ -72,44 +74,29 @@ class WebScraper:
             if current_url in self.visited_urls or current_depth > max_depth:
                 continue
 
-            # Insert as queued before scraping
-            self.db_connector.upsert_scraped_url(
-                base_url=initial_url,
-                url=current_url,
-                source_url=source_url,
-                depth=current_depth,
-                title=None,
-                links_to_texts={},
-                status="queued"
-            )
+            self._insert_to_db_as_queued(initial_url=initial_url, url=current_url, source_url=source_url, depth=current_depth)
 
             self.logger.info(f"Scraping: {current_url} (depth: {current_depth})")
             self.visited_urls.add(current_url)
             soup = self._get_page_content(current_url, session=session)
 
             if soup is not None:
-                page_data = URLMetadata(
-                    url=current_url,
-                    page_title=self._get_title(soup),
-                    source_url=source_url,
-                    depth_from_source=current_depth,
-                    links_to_texts=self._extract_links_with_text(soup, base_url=current_url),
-                )
-                self.scraped_data[page_data.url] = page_data
+                page_text = self._extract_page_text(soup)
+                topic = self.topic_classifier.classify_topic(page_text)
+                links_to_texts = self._extract_links_with_text(soup, base_url=current_url)
 
-                # Update status to completed after scraping
-                self.db_connector.update_status(
-                    base_url=initial_url,
-                    url=current_url,
-                    status="completed"
+                self._insert_completed_scrape_to_db(
+                    initial_url=initial_url, url=current_url, source_url=source_url, soup=soup,
+                    depth=current_depth, links_to_texts=links_to_texts, topic=topic
                 )
+
+                self.scraped_data.add(current_url)
 
                 if current_depth < max_depth:
-                    for link_url in page_data.links_to_texts.keys():
+                    for link_url in links_to_texts.keys():
                         if link_url not in self.visited_urls:
                             urls_to_process.append((link_url, current_url, current_depth + 1))
             else:
-                # Update status to completed even if scraping failed
                 self.db_connector.update_status(
                     base_url=initial_url,
                     url=current_url,
@@ -122,7 +109,7 @@ class WebScraper:
         self.logger.info(f"Scraping completed. Visited {len(self.visited_urls)} URLs")
         return self.scraped_data
 
-    async def ascrape(self, initial_url: str, max_depth: int, max_concurrency: int = 10) -> Dict[str, URLMetadata]:
+    async def ascrape(self, initial_url: str, max_depth: int, max_concurrency: int = 10) -> Set[str]:
         """
         Main concurrent scraping function that recursively crawls pages.
 
@@ -173,7 +160,7 @@ class WebScraper:
                             self._scrape_url_concurrent(
                                 session=session, semaphore=semaphore,
                                 visited_lock=visited_lock, scraped_lock=scraped_lock,
-                                url=url, source_url=source_url, depth=depth
+                                initial_url=initial_url, url=url, source_url=source_url, depth=depth
                             )
                         )
                         tasks.append(task)
@@ -223,7 +210,10 @@ class WebScraper:
             semaphore: asyncio.Semaphore,
             visited_lock: asyncio.Lock,
             scraped_lock: asyncio.Lock,
-            url: str, source_url: Optional[str], depth: int
+            initial_url: str,
+            url: str,
+            source_url: Optional[str],
+            depth: int
     ) -> List[Tuple[str, str, int]]:
         """
         Scrape a single URL concurrently.
@@ -239,15 +229,7 @@ class WebScraper:
                 self.visited_urls.add(url)
 
             # Insert as queued before scraping
-            self.db_connector.upsert_scraped_url(
-                base_url=self.visited_urls.__iter__().__next__(),  # Use the first visited as base_url
-                url=url,
-                source_url=source_url,
-                depth=depth,
-                title=None,
-                links_to_texts={},
-                status="queued"
-            )
+            self._insert_to_db_as_queued(initial_url=initial_url, url=url, source_url=source_url, depth=depth)
 
             self.logger.info(f"Scraping: {url} (depth: {depth})")
             try:
@@ -258,27 +240,22 @@ class WebScraper:
                 soup = await self._get_page_content_async(session, url)
 
                 if soup is not None:
-                    page_data = URLMetadata(
-                        url=url,
-                        page_title=self._get_title(soup),
-                        source_url=source_url,
-                        depth_from_source=depth,
-                        links_to_texts=self._extract_links_with_text(soup, base_url=url),
-                    )
+                    page_text = self._extract_page_text(soup)
+                    topic = await self.topic_classifier.classify_topic_async(page_text)
+                    links_to_texts = self._extract_links_with_text(soup, base_url=url)
 
                     # Store scraped data (with lock)
                     async with scraped_lock:
-                        self.scraped_data[page_data.url] = page_data
+                        self.scraped_data.add(url)
 
-                    # Update status to completed after scraping
-                    self.db_connector.update_status(
-                        base_url=self.visited_urls.__iter__().__next__(),
-                        url=url,
-                        status="completed"
+                    # Update with complete data including topic
+                    self._insert_completed_scrape_to_db(
+                        initial_url=initial_url, url=url, source_url=source_url, soup=soup,
+                        depth=depth, links_to_texts=links_to_texts, topic=topic
                     )
 
                     # Return new URLs for next level
-                    return [(link_url, url, depth + 1) for link_url in page_data.links_to_texts.keys()]
+                    return [(link_url, url, depth + 1) for link_url in links_to_texts.keys()]
                 else:
                     # Update status to completed even if scraping failed
                     self.db_connector.update_status(
@@ -324,16 +301,58 @@ class WebScraper:
             self.logger.error(f"Error fetching {url}: {e}")
             return None
 
-    def save_results(self, filename: str = 'scrape_results.json'):
-        """Save scraping results to JSON file."""
-        import json
+    def _insert_to_db_as_queued(self, initial_url: str, url: str, source_url: Optional[str], depth: int):
+        """
+        Insert a URL into the database as queued.
 
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(self.scraped_data, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"Results saved to {filename}")
-        except Exception as e:
-            self.logger.error(f"Error saving results: {e}")
+        Args:
+            initial_url: Base URL being scraped
+            url: URL to insert
+            source_url: Source URL that led to this URL (optional)
+            depth: Crawl depth
+        """
+        self.db_connector.upsert_scraped_url(
+            base_url=initial_url,
+            url=url,
+            source_url=source_url,
+            depth=depth,
+            title=None,
+            links_to_texts={},
+            status="queued"
+        )
+
+    def _insert_completed_scrape_to_db(
+            self,
+            initial_url: str,
+            url: str,
+            source_url: Optional[str],
+            depth: int,
+            soup: BeautifulSoup,
+            links_to_texts: Dict[str, str],
+            topic: str
+    ):
+        """
+        Insert a completed scrape result into the database.
+
+        Args:
+            initial_url: Base URL being scraped
+            url: URL that was scraped
+            source_url: Source URL that led to this URL (optional)
+            depth: Crawl depth
+            title: Page title
+            links_to_texts: Dictionary of links and their text
+            topic: Classified topic of the page
+        """
+        self.db_connector.upsert_scraped_url(
+            base_url=initial_url,
+            url=url,
+            source_url=source_url,
+            depth=depth,
+            title=self._get_title(soup),
+            links_to_texts=links_to_texts,
+            topic=topic,
+            status="completed"
+        )
 
     def _extract_links_with_text(self, soup: BeautifulSoup, base_url: str) -> Dict[str, str]:
         """
@@ -412,3 +431,20 @@ class WebScraper:
         """Check if URL is valid and accessible."""
         parsed = urlparse(url)
         return bool(parsed.netloc) and bool(parsed.scheme)
+
+    @staticmethod
+    def _extract_page_text(soup: BeautifulSoup) -> str:
+        """
+        Extract visible text content from a BeautifulSoup object.
+
+        Args:
+            soup: BeautifulSoup object
+
+        Returns:
+            Cleaned and concatenated string of visible text
+        """
+        # Get text from all paragraph tags
+        texts = [p.get_text(strip=True) for p in soup.find_all('p')]
+
+        # Join all texts with a space separator
+        return ' '.join(texts)

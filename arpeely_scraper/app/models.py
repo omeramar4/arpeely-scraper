@@ -25,6 +25,7 @@ class UrlStatusRecord(BaseModel):
     source_url: Optional[str]
     depth: int
     status: str
+    topic: str = "other"
 
 
 class StatusOnlyResponse(BaseModel):
@@ -44,4 +45,5 @@ class ResultRecord(BaseModel):
     depth: int
     title: Optional[str]
     links_to_texts: Any
+    topic: str = "other"
     status: str

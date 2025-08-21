@@ -5,7 +5,7 @@ from arpeely_scraper.app.models import ScrapeRequest, AsyncScrapeRequest, Scrape
     UrlStatusRecord
 from arpeely_scraper.app.service import ScraperApp
 from arpeely_scraper.core.scraper import WebScraper
-from arpeely_scraper.db_connector.di_container import Container
+from arpeely_scraper.core.di_container import Container
 from arpeely_scraper.db_connector.scraped_url_db_connector import ScrapedUrlDBConnector
 
 
@@ -14,7 +14,7 @@ app = ScraperApp()
 
 @app.post("/scrape", response_model=ScrapeResponse)
 def scrape(request: ScrapeRequest):
-    scraper = WebScraper()
+    scraper = WebScraper(start_fresh=request.start_fresh)
     try:
         results = scraper.scrape(request.base_url, request.max_depth)
         return ScrapeResponse(status="completed", scraped_count=len(results))
@@ -24,7 +24,7 @@ def scrape(request: ScrapeRequest):
 
 @app.post("/ascrape", response_model=ScrapeResponse)
 async def ascrape(request: AsyncScrapeRequest):
-    scraper = WebScraper()
+    scraper = WebScraper(start_fresh=request.start_fresh)
     try:
         results = await scraper.ascrape(request.base_url, request.max_depth, request.max_concurrency)
         return ScrapeResponse(status="completed", scraped_count=len(results))
@@ -55,6 +55,7 @@ def results(
         url=url,
         source_url=source_url,
         depth=depth,
-        status=status
-    ) for url, source_url, depth, status in all_urls]
+        status=status,
+        topic=topic
+    ) for url, source_url, depth, status, topic in all_urls]
     return ResultsResponse(base_url=base_url, results=result_objs)

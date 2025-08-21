@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS scraped_urls (
     depth INTEGER NOT NULL,
     title VARCHAR,
     links_to_texts JSONB,
+    topic VARCHAR DEFAULT 'other',
     status url_status_enum NOT NULL,
     PRIMARY KEY (base_url, url)
 );
