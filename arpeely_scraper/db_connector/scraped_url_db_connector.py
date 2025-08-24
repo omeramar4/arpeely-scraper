@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy import text
@@ -6,6 +6,8 @@ from sqlalchemy import create_engine, Column, String, Integer, Enum, JSON, inspe
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import SQLAlchemyError
 import enum
+
+from arpeely_scraper.utils.dataclasses import UrlToProcess, UrlProcessingResult
 
 
 Base = declarative_base()
@@ -29,7 +31,7 @@ class ScrapedUrl(Base):
 
 
 class ScrapedUrlDBConnector:
-    def __init__(self, dbname, user, password, host='localhost', port=5432):
+    def __init__(self, dbname: str, user: str, password: str, host: str = 'localhost', port: int = 5432):
         self.engine = create_engine(
             f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}",
             pool_size=10, max_overflow=20, pool_pre_ping=True
@@ -78,7 +80,7 @@ class ScrapedUrlDBConnector:
         finally:
             session.close()
 
-    def update_status(self, base_url, url, status):
+    def update_status(self, base_url: str, url: str, status: str):
         session = self.Session()
         try:
             obj = session.query(ScrapedUrl).filter_by(base_url=base_url, url=url).first()
@@ -91,7 +93,7 @@ class ScrapedUrlDBConnector:
         finally:
             session.close()
 
-    def update_topic(self, base_url, url, topic):
+    def update_topic(self, base_url: str, url: str, topic: str):
         session = self.Session()
         try:
             obj = session.query(ScrapedUrl).filter_by(base_url=base_url, url=url).first()
@@ -104,15 +106,22 @@ class ScrapedUrlDBConnector:
         finally:
             session.close()
 
-    def get_queued_urls(self, base_url):
+    def get_queued_urls(self, base_url: str) -> List[UrlToProcess]:
         session = self.Session()
         try:
             records = session.query(ScrapedUrl).filter_by(base_url=base_url, status=UrlStatusEnum.queued).all()
-            return [(r.url, r.source_url, r.depth) for r in records]
+            return [
+                UrlToProcess(
+                    url=str(r.url),
+                    source_url=str(r.source_url) if r.source_url is not None else None,
+                    depth=int(r.depth)
+                )
+                for r in records
+            ]
         finally:
             session.close()
 
-    def get_results(self, base_url):
+    def get_results(self, base_url: str):
         session = self.Session()
         try:
             records = session.query(ScrapedUrl).filter_by(base_url=base_url).all()
@@ -120,11 +129,20 @@ class ScrapedUrlDBConnector:
         finally:
             session.close()
 
-    def get_all_urls_with_status(self, base_url):
+    def get_all_urls_with_status(self, base_url: str) -> List[UrlProcessingResult]:
         session = self.Session()
         try:
             records = session.query(ScrapedUrl).filter_by(base_url=base_url).all()
-            return [(r.url, r.source_url, r.depth, r.status.value if hasattr(r.status, 'value') else str(r.status), r.topic) for r in records]
+            return [
+                UrlProcessingResult(
+                    url=str(r.url),
+                    source_url=str(r.source_url) if r.source_url is not None else None,
+                    depth=int(r.depth),
+                    status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                    topic=str(r.topic)
+                )
+                for r in records
+            ]
         finally:
             session.close()
 

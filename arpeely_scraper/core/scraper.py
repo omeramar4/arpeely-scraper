@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Set, Dict, List, Optional, Tuple
+from typing import Set, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
@@ -10,9 +10,7 @@ from bs4 import BeautifulSoup
 from dependency_injector.wiring import inject, Provide
 
 from arpeely_scraper.core.di_container import Container
-
-
-UrlToProcessType = Tuple[str, Optional[str], int]  # (url, source_url, depth)
+from arpeely_scraper.utils.dataclasses import UrlToProcess
 
 
 class WebScraper:
@@ -69,37 +67,44 @@ class WebScraper:
         urls_to_process = self._recover_previous_state(initial_url)
 
         while urls_to_process:
-            current_url, source_url, current_depth = urls_to_process.pop(0)
+            url_to_process = urls_to_process.pop(0)
 
-            if current_url in self.visited_urls or current_depth > max_depth:
+            if url_to_process.url in self.visited_urls or url_to_process.depth > max_depth:
                 continue
 
-            self._insert_to_db_as_queued(initial_url=initial_url, url=current_url, source_url=source_url, depth=current_depth)
+            self._insert_to_db_as_queued(
+                initial_url=initial_url,
+                url=url_to_process.url,
+                source_url=url_to_process.source_url,
+                depth=url_to_process.depth
+            )
 
-            self.logger.info(f"Scraping: {current_url} (depth: {current_depth})")
-            self.visited_urls.add(current_url)
-            soup = self._get_page_content(current_url, session=session)
+            self.logger.info(f"Scraping: {url_to_process.url} (depth: {url_to_process.depth})")
+            self.visited_urls.add(url_to_process.url)
+            soup = self._get_page_content(url_to_process.url, session=session)
 
             if soup is not None:
                 page_text = self._extract_page_text(soup)
                 topic = self.topic_classifier.classify_topic(page_text)
-                links_to_texts = self._extract_links_with_text(soup, base_url=current_url)
+                links_to_texts = self._extract_links_with_text(soup, base_url=url_to_process.url)
 
                 self._insert_completed_scrape_to_db(
-                    initial_url=initial_url, url=current_url, source_url=source_url, soup=soup,
-                    depth=current_depth, links_to_texts=links_to_texts, topic=topic
+                    initial_url=initial_url, url=url_to_process.url, source_url=url_to_process.source_url, soup=soup,
+                    depth=url_to_process.depth, links_to_texts=links_to_texts, topic=topic
                 )
 
-                self.scraped_data.add(current_url)
+                self.scraped_data.add(url_to_process.url)
 
-                if current_depth < max_depth:
+                if url_to_process.depth < max_depth:
                     for link_url in links_to_texts.keys():
                         if link_url not in self.visited_urls:
-                            urls_to_process.append((link_url, current_url, current_depth + 1))
+                            urls_to_process.append(
+                                UrlToProcess(url=link_url, source_url=url_to_process.url, depth=url_to_process.depth + 1)
+                            )
             else:
                 self.db_connector.update_status(
                     base_url=initial_url,
-                    url=current_url,
+                    url=url_to_process.url,
                     status="completed"
                 )
 
@@ -143,8 +148,8 @@ class WebScraper:
             for current_depth in range(max_depth + 1):
                 # Get URLs for current depth
                 current_level_urls = [
-                    (url, source_url, depth) for url, source_url, depth in urls_to_process
-                    if depth == current_depth
+                    url_to_process for url_to_process in urls_to_process
+                    if url_to_process.depth == current_depth
                 ]
 
                 if not current_level_urls:
@@ -154,13 +159,14 @@ class WebScraper:
 
                 # Process current level concurrently
                 tasks = []
-                for url, source_url, depth in current_level_urls:
-                    if url not in self.visited_urls:
+                for url_to_process in current_level_urls:
+                    if url_to_process.url not in self.visited_urls:
                         task = asyncio.create_task(
                             self._scrape_url_concurrent(
                                 session=session, semaphore=semaphore,
                                 visited_lock=visited_lock, scraped_lock=scraped_lock,
-                                initial_url=initial_url, url=url, source_url=source_url, depth=depth
+                                initial_url=initial_url, url=url_to_process.url,
+                                source_url=url_to_process.source_url, depth=url_to_process.depth
                             )
                         )
                         tasks.append(task)
@@ -183,24 +189,24 @@ class WebScraper:
         if not self._is_valid_url(initial_url):
             raise ValueError(f"Invalid initial URL: {initial_url}")
 
-    def _recover_previous_state(self, initial_url: str) -> List[UrlToProcessType]:
+    def _recover_previous_state(self, initial_url: str) -> List[UrlToProcess]:
         """
         Recover previous scraping state from the database.
 
         :param initial_url:
         :return:
         """
-        urls_to_process: List[Tuple[str, Optional[str], int]]
+        urls_to_process: List[UrlToProcess]
         if not self.start_fresh:
             queued_records = self.db_connector.get_queued_urls(initial_url)
             if queued_records:
                 self.logger.info(f"Resuming from {len(queued_records)} queued URLs for base_url {initial_url}")
-                urls_to_process = [(url, source_url, depth) for url, source_url, depth in queued_records]
+                urls_to_process = queued_records
             else:
                 self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
-                urls_to_process = [(initial_url, None, 0)]
+                urls_to_process = [UrlToProcess(url=initial_url, source_url=None, depth=0)]
         else:
-            urls_to_process = [(initial_url, None, 0)]
+            urls_to_process = [UrlToProcess(url=initial_url, source_url=None, depth=0)]
 
         return urls_to_process
 
@@ -214,7 +220,7 @@ class WebScraper:
             url: str,
             source_url: Optional[str],
             depth: int
-    ) -> List[Tuple[str, str, int]]:
+    ) -> List[UrlToProcess]:
         """
         Scrape a single URL concurrently.
 
@@ -255,7 +261,10 @@ class WebScraper:
                     )
 
                     # Return new URLs for next level
-                    return [(link_url, url, depth + 1) for link_url in links_to_texts.keys()]
+                    return [
+                        UrlToProcess(url=link_url, source_url=url, depth=depth + 1)
+                        for link_url in links_to_texts.keys()
+                    ]
                 else:
                     # Update status to completed even if scraping failed
                     self.db_connector.update_status(
@@ -339,7 +348,6 @@ class WebScraper:
             url: URL that was scraped
             source_url: Source URL that led to this URL (optional)
             depth: Crawl depth
-            title: Page title
             links_to_texts: Dictionary of links and their text
             topic: Classified topic of the page
         """
