@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy import text
@@ -114,7 +114,7 @@ class ScrapedUrlDBConnector:
                 UrlToProcess(
                     url=str(r.url),
                     source_url=str(r.source_url) if r.source_url is not None else None,
-                    depth=int(r.depth)
+                    depth=r.depth
                 )
                 for r in records
             ]
@@ -137,12 +137,27 @@ class ScrapedUrlDBConnector:
                 UrlProcessingResult(
                     url=str(r.url),
                     source_url=str(r.source_url) if r.source_url is not None else None,
-                    depth=int(r.depth),
+                    depth=r.depth,
                     status=r.status.value if hasattr(r.status, 'value') else str(r.status),
                     topic=str(r.topic)
                 )
                 for r in records
             ]
+        finally:
+            session.close()
+
+    def get_url_to_process(self, base_url: str, url: str, depth: int) -> UrlToProcess:
+        session = self.Session()
+        try:
+            records = session.query(ScrapedUrl).filter_by(base_url=base_url, url=url, depth=depth).all()
+            if len(records) != 1:
+                raise ValueError(f"Expected exactly one row for base_url={base_url}, url={url}, depth={depth}, got {len(records)}")
+            r = records[0]
+            return UrlToProcess(
+                url=str(r.url),
+                source_url=str(r.source_url) if r.source_url is not None else None,
+                depth=int(r.depth)
+            )
         finally:
             session.close()
 

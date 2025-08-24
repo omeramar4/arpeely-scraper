@@ -196,12 +196,33 @@ class WebScraper:
         :param initial_url:
         :return:
         """
-        urls_to_process: List[UrlToProcess]
+        urls_to_process: List[UrlToProcess] = []
         if not self.start_fresh:
             queued_records = self.db_connector.get_queued_urls(initial_url)
             if queued_records:
                 self.logger.info(f"Resuming from {len(queued_records)} queued URLs for base_url {initial_url}")
-                urls_to_process = queued_records
+                seen_urls = set()
+                for record in queued_records:
+                    if record.url not in seen_urls:
+                        urls_to_process.append(record)
+                        seen_urls.add(record.url)
+
+                    if record.source_url and record.source_url not in seen_urls:
+                        source_url_depth = record.depth - 1 if record.depth > 0 else 0
+                        try:
+                            source_of_source = self.db_connector.get_url_to_process(
+                                url=record.source_url, base_url=initial_url, depth=source_url_depth
+                            ).source_url
+                        except ValueError:
+                            source_of_source = None
+                        urls_to_process.append(
+                            UrlToProcess(
+                                url=record.source_url,
+                                source_url=source_of_source,
+                                depth=source_url_depth
+                            )
+                        )
+                        seen_urls.add(record.source_url)
             else:
                 self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
                 urls_to_process = [UrlToProcess(url=initial_url, source_url=None, depth=0)]

@@ -27,7 +27,7 @@ arpeely-scraper supports two main modes of operation: **REST API** and **CLI**. 
 Start the PostgreSQL database using Docker Compose:
 
 ```bash
-docker-compose up -d
+docker compose up postgres -d
 ```
 
 This will start a PostgreSQL instance with default credentials as specified in your environment variables or Docker Compose file.
@@ -37,7 +37,7 @@ This will start a PostgreSQL instance with default credentials as specified in y
 To run the scraper as a REST API server:
 
 ```bash
-uvicorn arpeely_scraper.app.api.main:app --host 0.0.0.0 --port 8000
+docker compose up fastapi -d
 ```
 
 **API Endpoints:**
@@ -54,10 +54,17 @@ You can interact with the API using tools like `curl`, Postman, or directly from
 To run the scraper from the command line, use the CLI entrypoint:
 
 ```bash
-python -m arpeely_scraper.app.cli.cli
+docker compose run cli
 ```
 
-Refer to the CLI help for available commands and options.
+This command opens an interactive Bash session where the topic classification model is loaded first, after which you can execute CLI commands. Available commands include:
+
+- `scrape`: Start synchronous scraping for a given URL.
+- `ascrape`: Start asynchronous scraping for a given URL.
+- `status`: Check the scraping status for a base URL.
+- `results`: Retrieve scraping results for a base URL.
+- `add_topics`: Add or update the list of topics for classification.
+- `help`: Show help information for CLI commands.
 
 ---
 
@@ -85,8 +92,14 @@ arpeely-scraper uses a **zero-shot classification model** from Hugging Face's Tr
 
 ### Fault Tolerance and Recovery
 
-- **Crash Recovery**: If the application crashes or is interrupted, it will resume scraping from the last known state (queued URLs) upon restart. This is achieved by persisting the status of each URL in the database and recovering the queue at startup.
-- **Idempotent Table Creation**: The database table for scraped URLs is created at startup if it does not exist, ensuring smooth initialization.
+arpeely-scraper is designed to be fault-tolerant and can recover gracefully from crashes or interruptions. When the application restarts, it checks the database for URLs in the "queued" state. The new recovery logic ensures that for each queued URL, its associated source URL is also re-added to the processing list. This means the entire scraping process for the source URL is repeated, guaranteeing that no part of the workflow is missed, regardless of when the crash occurred.
+
+**How it works:**
+- On recovery, both queued URLs and their source URLs are scheduled for reprocessing.
+- This approach ensures that any partially scraped data is completed and the integrity of the scraping process is maintained.
+- The system avoids duplicate processing by tracking already scheduled URLs.
+
+This robust recovery mechanism provides greater reliability for large-scale or long-running scraping jobs, ensuring that all intended data is collected even after unexpected failures.
 
 ### Additional Features
 
