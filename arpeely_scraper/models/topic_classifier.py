@@ -13,9 +13,8 @@ class TopicClassifier:
     """
 
     TOPICS = [
-        "weather", "news", "technology", "sports",
-        "entertainment", "travel", "cooking", "politics",
-        "shopping", "productivity", "coding", "other"
+        "weather", "news", "technology", "sports", "entertainment", "travel", "cooking", "politics", "shopping", "productivity", "coding",
+        "finance", "health", "science", "education", "business", "automotive", "real estate", "jobs", "fashion", "beauty", "food", "parenting", "pets", "gaming", "art", "history", "religion", "environment", "law", "music", "movies", "books", "photography", "DIY", "home improvement", "gardening", "fitness", "relationships", "social media", "marketing", "advertising", "events", "charity", "government", "military", "security", "cryptocurrency", "investments", "startups", "reviews", "forums", "blogs", "podcasts", "e-learning", "e-commerce", "auctions", "travel guides", "airlines", "hotels", "restaurants", "nightlife", "shopping guides", "deals", "coupons", "recipes", "spirituality", "philosophy", "comics", "anime", "cartoons", "children", "seniors", "disabilities", "activism", "volunteering", "crowdfunding", "memes", "satire", "opinion", "editorial", "other"
     ]
 
     def __init__(self, model_name: str):
@@ -38,7 +37,7 @@ class TopicClassifier:
             self.classifier = pipeline(
                 "zero-shot-classification",
                 model=self.model_name,
-                device=-1  # Use CPU to avoid GPU memory issues
+                device=-1  # Use CPU
             )
             self.logger.info(f"Topic classification model {self.model_name} loaded successfully")
         except Exception as e:
@@ -147,11 +146,9 @@ class TopicClassifier:
             # Truncate text to avoid model input limits
             text = text[:512]
 
-            # Use the classifier with thread safety
             with self._lock:
                 result = self.classifier(text, self.TOPICS)
 
-            # Create confidence dictionary
             confidence_dict = {}
             for label, score in zip(result['labels'], result['scores']):
                 confidence_dict[label] = float(score)

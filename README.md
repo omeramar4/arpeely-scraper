@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-**arpeely-scraper** is a robust, production-ready web scraping application designed to crawl websites, extract content, and classify topics using state-of-the-art machine learning models. It is built with FastAPI for RESTful API access and also provides a command-line interface (CLI) for direct control. The motivation behind arpeely-scraper is to offer a scalable, fault-tolerant, and extensible solution for large-scale web data collection and topic classification, with seamless integration to a PostgreSQL database for persistent storage and recovery.
+**arpeely-scraper** is a robust web scraping application designed to crawl websites, extract content, and classify topics using state-of-the-art machine learning models. It is built with FastAPI for RESTful API access and also provides a command-line interface (CLI) for direct control. The motivation behind arpeely-scraper is to offer a scalable, fault-tolerant, and extensible solution for large-scale web data collection and topic classification, with seamless integration to a PostgreSQL database for persistent storage and recovery.
 
 **Key Features:**
 - Synchronous and asynchronous scraping modes for performance and flexibility.
@@ -24,21 +24,15 @@ arpeely-scraper supports two main modes of operation: **REST API** and **CLI**. 
 
 ### Database Setup
 
-Start the PostgreSQL database using Docker Compose:
+Start the PostgreSQL database and the FastAPI app using Docker Compose:
 
 ```bash
-docker compose up postgres -d
+docker compose up -d
 ```
 
 This will start a PostgreSQL instance with default credentials as specified in your environment variables or Docker Compose file.
 
 ### REST API Mode
-
-To run the scraper as a REST API server:
-
-```bash
-docker compose up fastapi -d
-```
 
 **API Endpoints:**
 - `POST /scrape`: Start synchronous scraping.

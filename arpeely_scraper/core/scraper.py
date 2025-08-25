@@ -207,7 +207,8 @@ class WebScraper:
                         urls_to_process.append(record)
                         seen_urls.add(record.url)
 
-                    if record.source_url and record.source_url not in seen_urls:
+                    if record.source_url is not None and record.source_url not in seen_urls:
+                        self.logger.info(f"Recovering from {record.source_url} from {record.url}")
                         source_url_depth = record.depth - 1 if record.depth > 0 else 0
                         try:
                             source_of_source = self.db_connector.get_url_to_process(
@@ -223,6 +224,8 @@ class WebScraper:
                             )
                         )
                         seen_urls.add(record.source_url)
+
+                urls_to_process.sort(key=lambda x: x.depth)
             else:
                 self.logger.info(f"No queued URLs found for base_url {initial_url}, starting fresh.")
                 urls_to_process = [UrlToProcess(url=initial_url, source_url=None, depth=0)]
