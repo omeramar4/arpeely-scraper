@@ -15,6 +15,8 @@ from arpeely_scraper.utils.dataclasses import UrlToProcess
 
 class WebScraper:
 
+    LIMIT_PER_HOST = 5  # Max concurrent connections per host
+
     @inject
     def __init__(
             self,
@@ -134,7 +136,7 @@ class WebScraper:
         scraped_lock = asyncio.Lock()
 
         # Create aiohttp session
-        connector = aiohttp.TCPConnector(limit=max_concurrency * 2, limit_per_host=5)
+        connector = aiohttp.TCPConnector(limit=max_concurrency * 2, limit_per_host=self.LIMIT_PER_HOST)
         timeout = aiohttp.ClientTimeout(total=self.timeout)
 
         async with aiohttp.ClientSession(
